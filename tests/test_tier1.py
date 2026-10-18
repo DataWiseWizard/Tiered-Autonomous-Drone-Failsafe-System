@@ -1,8 +1,12 @@
 """
-test_tier1.py
 Unit tests for Tier 1 state machine logic.
 Tests BOTH percentage-based and voltage-based battery failsafes.
 """
+import sys
+from pathlib import Path
+
+# Automatically add the 'src/' directory to Python's import path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from state_machine import FailsafeStateMachine, TelemetrySnapshot, FlightState
 
@@ -16,12 +20,13 @@ class MockConnection:
         print(f"  [MOCK] Command sent: SET_MODE → {mode}")
 
 
-def make_telemetry(battery_pct=100, voltage_mv=12600, gps_fix=3, rc=True):
-    """Helper to create telemetry snapshots."""
+def make_telemetry(battery_pct=100, voltage_mv=12600, gps_fix=3, gps_sats=10, rc=True):
+    """Helper to create telemetry snapshots with healthy default GPS (fix=3, sats=10)."""
     return TelemetrySnapshot(
         battery_remaining_pct=battery_pct,
         battery_voltage_mv=voltage_mv,
         gps_fix_type=gps_fix,
+        gps_satellites=gps_sats,
         rc_received=rc
     )
 

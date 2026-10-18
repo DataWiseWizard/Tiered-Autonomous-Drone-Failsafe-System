@@ -5,4 +5,9 @@ numpy>=1.24.0
 pandas>=2.0.0
 scikit-learn>=1.3.0
 onnxruntime-gpu>=1.16.0
-opencv-python>=4.8.0matplotlib>=3.8.0
+opencv-python>=4.8.0
+matplotlib>=3.8.0
+streamlit>=1.30.0
+plotly>=5.18.0
+ultralytics>=8.0.200
+Pillow>=10.0.0

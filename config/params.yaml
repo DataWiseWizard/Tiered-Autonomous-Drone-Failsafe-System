@@ -1,0 +1,36 @@
+# Runtime Parameters
+
+system:
+  mavlink_endpoint: "udp:127.0.0.1:14550"
+  loop_rate_hz: 10
+  grid_origin_x: 30
+  grid_origin_y: 25
+
+tier1_watchdog:
+  battery_warning_pct: 20.0
+  battery_rtl_pct: 15.0
+  battery_land_pct: 8.0
+  battery_warning_voltage: 11.5
+  battery_rtl_voltage: 11.0
+  battery_land_voltage: 10.5
+  rc_lost_timeout_s: 3.0
+
+tier2_environment:
+  min_gps_fix_type: 3
+  min_satellites: 6
+  ekf_degraded_threshold: 1.0
+  ekf_critical_threshold: 5.0
+  spoof_max_jump_m: 5.0
+  spoof_max_vel_divergence_ms: 8.0
+
+tier3_vision:
+  preferred_prob_threshold: 0.80
+  conditional_prob_threshold: 0.50
+  absolute_no_land_floor: 0.30
+  min_confidence_score: 0.50
+  min_cluster_tiles: 3
+  grid_resolution_m: 5.0
+  staging_alt_agl_m: 10.0
+  arrival_radius_m: 1.5
+  approach_stage_timeout_s: 12.0
+  total_descent_timeout_s: 30.0

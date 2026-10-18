@@ -1,5 +1,4 @@
 """
-blackbox.py
 Flight Data Recorder (Black Box) for Tiered Failsafe System.
 Writes structured JSON logs to disk for post-flight analysis.
 """

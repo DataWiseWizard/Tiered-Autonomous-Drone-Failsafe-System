@@ -1,24 +1,12 @@
-# Python
 __pycache__/
 *.py[cod]
-venv/
 .venv/
-*.egg-info/
-
-# Logs
-logs/*.jsonl
-
-# IDE
-.vscode/
-.idea/
-
-# OS
-.DS_Store
-Thumbs.db
-
-# ArduPilot
-mav.parm
-mav.tlog
-mav.tlog.raw
+venv/
+runs/
+logs/blackbox/
+*.engine
+*.plan
+.streamlit/secrets.toml
 
 READMEoldvr.md
+.vscode/
