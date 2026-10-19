@@ -4,6 +4,6 @@
 
 | Architecture Configuration | Trials ($N$) | Safe Pad Success Rate ($\le 2.5\text{ m}$) | Mean Radial Error | $\text{CEP}_{50}$ (Median) | $\text{CEP}_{95}$ (95th Pct) |
 | :--- | :---: | :---: | :---: | :---: | :---: |
-| **v1.0 Open-Loop (IMU Only)** | 100 | **95.0%** | 0.00 m | **0.00 m** | 0.00 m |
-| **v2.0 Sensor Fusion (Flow + Rangefinder)** | 100 | **95.0%** | 0.00 m | **0.00 m** | 0.00 m |
-| **v2.0 Full Stack (Fusion + Visual Servoing)** | 100 | **96.0%** | 0.46 m | **0.42 m** | 0.91 m |
+| **v1.0 Open-Loop (IMU Only)** | 100 | **11.0%** | 7.29 m | **6.88 m** | 16.12 m |
+| **v2.0 Sensor Fusion (Flow + Rangefinder)** | 100 | **88.0%** | 0.45 m | **0.38 m** | 0.83 m |
+| **v2.0 Full Stack (Fusion + Visual Servoing)** | 100 | **82.0%** | 0.57 m | **0.37 m** | 0.67 m |
