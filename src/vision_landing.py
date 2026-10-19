@@ -86,14 +86,16 @@ class VisionLandingEngine:
     def _load_or_train_model(self) -> Pipeline:
         """Load cached joblib pipeline or train on 80% stratified split (seed=42) and save."""
         if self.model_path.exists():
-            pipeline = joblib.load(self.model_path)
-            logger.info("MODEL_LOADED_FROM_CACHE", path=str(self.model_path))
-            return pipeline
+            try:
+                pipeline = joblib.load(self.model_path)
+                logger.info("MODEL_LOADED_FROM_CACHE", path=str(self.model_path))
+                return pipeline
+            except Exception as e:
+                logger.warning("MODEL_CACHE_LOAD_FAILED_RETRAINING", error=str(e))
 
         X = self.df[self.feature_cols]
         y = self.df["label"]
 
-        # 80/20 stratified split matching safety_landing_model.ipynb
         X_train, _, y_train, _ = train_test_split(
             X, y, test_size=0.20, stratify=y, random_state=42
         )

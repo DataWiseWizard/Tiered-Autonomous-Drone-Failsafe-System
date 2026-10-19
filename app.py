@@ -60,15 +60,11 @@ def get_yolo_model():
     if _yolo_model is None:
         try:
             from ultralytics import YOLO
-            pt_path = PROJECT_ROOT / "models" / "yolov8n-seg.pt"
-            onnx_path = PROJECT_ROOT / "models" / "yolov8n-seg.onnx"
-            # Prefer local pt or onnx
-            target = str(pt_path) if pt_path.exists() else (str(onnx_path) if onnx_path.exists() else "yolov8n-seg.pt")
-            _yolo_model = YOLO(target)
+            # Always load yolov8n-seg.pt natively to avoid ONNX Protobuf corruption errors on HF Spaces
+            _yolo_model = YOLO("yolov8n-seg.pt")
         except Exception as e:
             print(f"[YOLO Load Error]: {e}")
     return _yolo_model
-
 
 # ═══════════════════════════════════════════════════════
 # TAB 1: Spatial Cluster Explorer
