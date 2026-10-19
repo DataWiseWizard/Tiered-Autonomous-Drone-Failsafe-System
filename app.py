@@ -1,10 +1,47 @@
 """
 Tiered Drone Failsafe Hub — Gradio Dashboard
-Drop-in replacement for Streamlit (HF ZeroGPU/CPU compatible)
+Hardened for Hugging Face Spaces (ZeroGPU & CPU Basic compatible)
 """
 import json
 import sys
 from pathlib import Path
+
+# ── 1. Patch huggingface_hub.HfFolder BEFORE importing gradio ──
+import huggingface_hub
+if not hasattr(huggingface_hub, "HfFolder"):
+    class _HfFolderCompat:
+        @classmethod
+        def get_token(cls):
+            return huggingface_hub.get_token()
+    huggingface_hub.HfFolder = _HfFolderCompat
+
+import gradio as gr
+import gradio_client.utils as _gc_utils
+
+# ── 2. Patch gradio_client bool schema bug (fixes TypeError: 'bool' is not iterable) ──
+if hasattr(_gc_utils, "_json_schema_to_python_type"):
+    _orig_schema_fn = _gc_utils._json_schema_to_python_type
+    def _safe_json_schema_to_python_type(schema, defs=None):
+        if isinstance(schema, bool):
+            return "Any" if schema else "None"
+        return _orig_schema_fn(schema, defs)
+    _gc_utils._json_schema_to_python_type = _safe_json_schema_to_python_type
+
+if hasattr(_gc_utils, "get_type"):
+    _orig_get_type = _gc_utils.get_type
+    def _safe_get_type(schema):
+        if isinstance(schema, bool):
+            return "Any"
+        return _orig_get_type(schema)
+    _gc_utils.get_type = _safe_get_type
+
+# ── 3. Support Hugging Face ZeroGPU (@spaces.GPU) if enabled on the Space ──
+try:
+    import spaces
+    gpu_decorator = spaces.GPU
+except ImportError:
+    def gpu_decorator(fn):
+        return fn
 
 import numpy as np
 import pandas as pd
@@ -17,16 +54,6 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from vision_landing import VisionLandingEngine
 
-import huggingface_hub
-if not hasattr(huggingface_hub, "HfFolder"):
-    class _HfFolderCompat:
-        @classmethod
-        def get_token(cls): return huggingface_hub.get_token()
-    huggingface_hub.HfFolder = _HfFolderCompat
-
-import gradio as gr
-
-
 # Lazy-load YOLO only when Tab 2 is used
 _yolo_model = None
 def get_yolo_model():
@@ -35,7 +62,7 @@ def get_yolo_model():
         from ultralytics import YOLO
         onnx_path = PROJECT_ROOT / "models" / "yolov8n-seg.onnx"
         if onnx_path.exists():
-            _yolo_model = YOLO(str(onnx_path))
+            _yolo_model = YOLO(str(onnx_path), task="segment")
     return _yolo_model
 
 
@@ -45,7 +72,7 @@ def get_yolo_model():
 def load_cluster_explorer():
     ve = VisionLandingEngine()
     fig = go.Figure(data=go.Heatmap(
-        z=ve.prob_matrix, colorscale="RdYlGn", reversescale=True,
+        z=ve.prob_matrix, colorscale="RdYlGn", reversescale=False,
         x=np.arange(60), y=np.arange(50),
         colorbar=dict(title="Safe Probability"),
     ))
@@ -60,24 +87,27 @@ def load_cluster_explorer():
         fig.add_trace(go.Scatter(
             x=[target["x"]], y=[target["y"]], mode="markers+text",
             marker=dict(color="black", size=18, symbol="star"),
-            text=[f"Target (Tier {target['tier']})"],
+            text=[f"Target ({target['tier']})"],
             textposition="bottom center", name="Safe Cluster",
         ))
-        info_text = (f"✅ Safest cluster at grid ({target['x']}, {target['y']}) "
-                        f"Tier: {target['tier']} | Safety Prob: {target.get('prob', 0):.3f} | "
-                        f"Area: {target.get('area_m2', 75):.0f} m² | Sensor Conf: {target.get('mean_conf', 0):.2f}"
+        info_text = (
+            f"✅ Safest cluster at grid ({target['x']}, {target['y']}) — "
+            f"Tier: {target['tier']} | Safety Prob: {target.get('prob', 0):.3f} | "
+            f"Area: {target.get('area_m2', 75):.0f} m² | Sensor Conf: {target.get('mean_conf', 0):.2f}"
         )
     fig.update_layout(
         title="Connected-Component Safe Zone Selection (BFS Flood-Fill)",
-        xaxis_title="Grid X (60 tiles × 5 m)", yaxis_title="Grid Y (50 tiles × 5 m)",
+        xaxis_title="Grid X (60 tiles × 5 m)",
+        yaxis_title="Grid Y (50 tiles × 5 m)",
         height=650,
     )
     return fig, info_text
 
 
 # ═══════════════════════════════════════════════════════
-# TAB 2: ONNX Segmentation Tester
+# TAB 2: ONNX Segmentation Tester (Decorated for ZeroGPU)
 # ═══════════════════════════════════════════════════════
+@gpu_decorator
 def run_segmentation(image_input):
     if image_input is None:
         return None, "No image provided."
@@ -95,7 +125,7 @@ def run_segmentation(image_input):
             cls_name = results[0].names.get(cls_id, f"class_{cls_id}")
             summary_lines.append(f"• {cls_name}: {conf:.2%}")
     else:
-        summary_lines.append("No COCO-class objects detected.")
+        summary_lines.append("No COCO-class obstacle detected — landing zone clear.")
     return Image.fromarray(res_plotted), "\n".join(summary_lines)
 
 
@@ -109,16 +139,19 @@ def load_monte_carlo_data():
     data = []
     with open(jsonl_path, "r") as f:
         for line in f:
-            data.append(json.loads(line))
-    return pd.DataFrame(data)
+            line = line.strip()
+            if line:
+                data.append(json.loads(line))
+    return pd.DataFrame(data) if data else None
+
 
 def update_mc_dashboard(modes, faults):
     df = load_monte_carlo_data()
     if df is None:
-        return {}, {}, {}, {}, None, None, None
+        return "N/A", "N/A", "N/A", "N/A", None, None, pd.DataFrame()
     filtered = df[(df["mode"].isin(modes)) & (df["fault_type"].isin(faults))]
     if filtered.empty:
-        return {"value": "N/A"}, {"value": "N/A"}, {"value": "N/A"}, {"value": "N/A"}, None, None, None
+        return "N/A", "N/A", "N/A", "N/A", None, None, pd.DataFrame()
 
     success_rate = f"{filtered['landed_safely'].mean() * 100:.1f}%"
     mean_err = f"{filtered['radial_error_m'].mean():.2f} m"
@@ -127,53 +160,54 @@ def update_mc_dashboard(modes, faults):
 
     fig_hist = px.histogram(
         filtered, x="radial_error_m", color="mode", barmode="overlay",
-        title="Radial Error Distribution (m)", nbins=30,
+        title="Radial Touchdown Error Distribution (m)", nbins=30,
         labels={"radial_error_m": "Radial Error (m)", "mode": "Architecture"},
     )
-    fig_hist.add_vline(x=2.5, line_dash="dash", line_color="red", annotation_text="2.5m Limit")
+    fig_hist.add_vline(x=2.5, line_dash="dash", line_color="red", annotation_text="2.5m Safe Pad Limit")
 
     fig_bar = px.bar(
         filtered.groupby(["fault_type", "mode"])["landed_safely"].mean().reset_index()
                 .assign(pct=lambda d: d["landed_safely"] * 100),
         x="fault_type", y="pct", color="mode", barmode="group",
-        title="Success Rate (%) by Fault Type",
+        title="Landing Success Rate (%) by Fault Vector",
         labels={"fault_type": "Fault Type", "pct": "Success Rate (%)", "mode": "Architecture"},
     )
 
-    kpis = [
-        {"label": "Success Rate", "value": success_rate},
-        {"label": "Mean Radial Error", "value": mean_err},
-        {"label": "CEP₅₀ (Median)", "value": cep50},
-        {"label": "CEP₉₅ (95th Pct)", "value": cep95},
-    ]
-    return kpis[0], kpis[1], kpis[2], kpis[3], fig_hist, fig_bar, filtered
+    return success_rate, mean_err, cep50, cep95, fig_hist, fig_bar, filtered
 
 
 # ═══════════════════════════════════════════════════════
 # BUILD GRADIO UI
 # ═══════════════════════════════════════════════════════
-with gr.Blocks(title="🚁 TDFH Dashboard", theme=gr.themes.Soft()) as demo:
-    gr.Markdown("# 🚁 Tiered Drone Failsafe Hub\n**Sprint 4.2** — Cluster Explorer · ONNX Segmentation · Monte Carlo Replay")
+with gr.Blocks(title="🚁 TDFH Dashboard") as demo:
+    gr.Markdown(
+        "# 🚁 Tiered Autonomous Drone Failsafe Hub\n"
+        "**Interactive Portfolio Suite** — Connected-Component Cluster Explorer · "
+        "YOLOv8n-seg ONNX Perception · Monte Carlo Fault-Injection Replay"
+    )
 
     with gr.Tabs():
         # ── TAB 1 ──
         with gr.Tab("🗺️ Spatial Cluster Explorer"):
-            cluster_plot = gr.Plot(label="60×50 Terrain Heatmap")
-            cluster_info = gr.Textbox(label="Cluster Status", interactive=False)
-            gr.Button("🔄 Load Terrain Grid", variant="primary").click(
+            cluster_plot = gr.Plot(label="60×50 Terrain Safety Probability Grid")
+            cluster_info = gr.Textbox(label="Selected Contiguous Cluster Status", interactive=False)
+            gr.Button("🔄 Compute Safest Contiguous Landing Cluster", variant="primary").click(
                 fn=load_cluster_explorer, outputs=[cluster_plot, cluster_info]
             )
 
         # ── TAB 2 ──
         with gr.Tab("🧠 ONNX Segmentation Tester"):
             with gr.Row():
-                img_input = gr.Image(type="pil", label="Upload Aerial Image")
-                img_output = gr.Image(type="pil", label="Segmentation Output")
+                img_input = gr.Image(type="pil", label="Upload Downward Aerial Frame")
+                img_output = gr.Image(type="pil", label="YOLOv8n-seg ONNX Output")
             detection_summary = gr.Textbox(label="Detection Summary", lines=4, interactive=False)
             sample_dir = PROJECT_ROOT / "data" / "sample_aerials"
-            samples = sorted([str(p) for p in sample_dir.glob("*") if p.suffix.lower() in (".jpg",".jpeg",".png")]) if sample_dir.exists() else []
+            samples = (
+                sorted([str(p) for p in sample_dir.glob("*") if p.suffix.lower() in (".jpg", ".jpeg", ".png")])
+                if sample_dir.exists() else []
+            )
             if samples:
-                gr.Examples(examples=[[s] for s in samples], inputs=img_input, label="Or use bundled sample")
+                gr.Examples(examples=[[s] for s in samples], inputs=img_input, label="Bundled Aerial Samples")
             img_input.change(fn=run_segmentation, inputs=img_input, outputs=[img_output, detection_summary])
 
         # ── TAB 3 ──
@@ -190,10 +224,10 @@ with gr.Blocks(title="🚁 TDFH Dashboard", theme=gr.themes.Soft()) as demo:
                 mc_faults = gr.CheckboxGroup(choices=fault_choices, value=fault_choices, label="Fault Type")
 
             with gr.Row():
-                kpi1 = gr.JSON(label="Success Rate")
-                kpi2 = gr.JSON(label="Mean Radial Error")
-                kpi3 = gr.JSON(label="CEP₅₀")
-                kpi4 = gr.JSON(label="CEP₉₅")
+                kpi1 = gr.Textbox(label="Safe Pad Success Rate (≤ 2.5m)", interactive=False)
+                kpi2 = gr.Textbox(label="Mean Radial Error", interactive=False)
+                kpi3 = gr.Textbox(label="CEP₅₀ (Median)", interactive=False)
+                kpi4 = gr.Textbox(label="CEP₉₅ (95th Pct)", interactive=False)
 
             mc_hist = gr.Plot(label="Radial Error Distribution")
             mc_bar = gr.Plot(label="Success Rate by Fault Type")
@@ -205,12 +239,16 @@ with gr.Blocks(title="🚁 TDFH Dashboard", theme=gr.themes.Soft()) as demo:
                     inputs=[mc_modes, mc_faults],
                     outputs=[kpi1, kpi2, kpi3, kpi4, mc_hist, mc_bar, mc_table],
                 )
-            # Auto-load on page open
+
             demo.load(
                 fn=update_mc_dashboard,
                 inputs=[mc_modes, mc_faults],
                 outputs=[kpi1, kpi2, kpi3, kpi4, mc_hist, mc_bar, mc_table],
             )
+            demo.load(
+                fn=load_cluster_explorer,
+                outputs=[cluster_plot, cluster_info],
+            )
 
 if __name__ == "__main__":
-    demo.launch()
+    demo.launch(ssr=False, show_api=False)
