@@ -6,7 +6,6 @@ import json
 import sys
 from pathlib import Path
 
-import gradio as gr
 import numpy as np
 import pandas as pd
 import plotly.express as px
@@ -17,6 +16,16 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from vision_landing import VisionLandingEngine
+
+import huggingface_hub
+if not hasattr(huggingface_hub, "HfFolder"):
+    class _HfFolderCompat:
+        @classmethod
+        def get_token(cls): return huggingface_hub.get_token()
+    huggingface_hub.HfFolder = _HfFolderCompat
+
+import gradio as gr
+
 
 # Lazy-load YOLO only when Tab 2 is used
 _yolo_model = None
@@ -55,7 +64,9 @@ def load_cluster_explorer():
             textposition="bottom center", name="Safe Cluster",
         ))
         info_text = (f"✅ Safest cluster at grid ({target['x']}, {target['y']}) "
-                     f"— Tier {target['tier']}, confidence={target.get('confidence', 0):.2f}")
+                        f"Tier: {target['tier']} | Safety Prob: {target.get('prob', 0):.3f} | "
+                        f"Area: {target.get('area_m2', 75):.0f} m² | Sensor Conf: {target.get('mean_conf', 0):.2f}"
+        )
     fig.update_layout(
         title="Connected-Component Safe Zone Selection (BFS Flood-Fill)",
         xaxis_title="Grid X (60 tiles × 5 m)", yaxis_title="Grid Y (50 tiles × 5 m)",

@@ -128,30 +128,37 @@ def run_single_trial(
             sm._guidance_start_time = sim_time - 1.0
 
         if sm._descent_commanded:
-            # Physics movement toward commanded target
             err_n = conn.target_north_m - est_n
             err_e = conn.target_east_m - est_e
             dist = math.hypot(err_n, err_e)
-            max_step = 8.0 * dt  # 8 m/s horizontal flight speed
-            if dist > 0.1:
+            max_step = 8.0 * dt
+            if dist > 1e-3:
                 scale = min(1.0, max_step / dist)
-                est_n += err_n * scale
-                est_e += err_e * scale
-                true_n += err_n * scale + float(rng.normal(0.0, 0.05))
-                true_e += err_e * scale + float(rng.normal(0.0, 0.05))
+                move_n = err_n * scale
+                move_e = err_e * scale
             else:
-                true_n = conn.target_north_m
-                true_e = conn.target_east_m
-                est_n = conn.target_north_m
-                est_e = conn.target_east_m
+                move_n, move_e = 0.0, 0.0
+
+            # Uncompensated IMU drifts with wind; Optical Flow bounds drift tightly
+            if not use_flow:
+                drift_n = wind_drift_n_ms * dt + float(rng.normal(0.0, 0.18))
+                drift_e = wind_drift_e_ms * dt + float(rng.normal(0.0, 0.18))
+            else:
+                drift_n = float(rng.normal(0.0, 0.045))
+                drift_e = float(rng.normal(0.0, 0.045))
+
+            est_n += move_n
+            est_e += move_e
+            true_n += move_n + drift_n
+            true_e += move_e + drift_e
 
             if use_visual_servo and not conn.nav_land_active and sm._vision_target is not None:
                 true_target_n, true_target_e = vision_engine.grid_to_local_meters(
                     sm._vision_target["x"], sm._vision_target["y"],
                     sm.current_grid_x, sm.current_grid_y
                 )
-                vis_err_n = true_target_n - true_n
-                vis_err_e = true_target_e - true_e
+                vis_err_n = (true_target_n - true_n) + float(rng.normal(0.0, 0.04))
+                vis_err_e = (true_target_e - true_e) + float(rng.normal(0.0, 0.04))
                 conn.target_north_m = est_n + 0.65 * vis_err_n
                 conn.target_east_m = est_e + 0.65 * vis_err_e
                 sm.servo_corrections_count += 1
